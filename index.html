@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Morse Station Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* A wizard, one question per screen: a step rail on top, the question in a
+   card, Back/Next at the bottom. The last step is a checklist of stations to plug in. */
+:root {
+  --bg: #f4f6f9; --card: #ffffff; --ink: #18202b; --muted: #5d6877; --line: #d9dfe7;
+  --accent: #1667b8; --accent-ink: #ffffff; --good: #1e7d4f; --bad: #b3261e; --tint: #eaf1f9;
+  --oled: #05070a; --pixel: #dff0ff;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "Barlow", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f141a; --card: #171e26; --ink: #e8edf3; --muted: #9aa6b4; --line: #2a3542;
+    --accent: #5aa6f0; --accent-ink: #0b1220; --good: #5cc98f; --bad: #f08a80; --tint: #1b2633; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 var(--body); }
+main { max-width: 640px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-left, 0px)) 48px; display: grid; gap: 18px; }
+.brand { font: 700 15px var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.brand .mark { display: inline-flex; gap: 3px; align-items: center; }
+.brand .mark i { display: block; height: 5px; width: 5px; border-radius: 3px; background: var(--accent); }
+.brand .mark i.d { width: 15px; }
+.rail { display: flex; gap: 6px; }
+.rail span { flex: 1; height: 5px; border-radius: 3px; background: var(--line); }
+.rail span.done { background: var(--accent); }
+.rail span.now { background: var(--accent); opacity: .5; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; display: grid; gap: 16px; }
+h1 { font: 700 34px/1.05 var(--display); text-transform: uppercase; letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); margin: 0; }
+.stepname { font: 600 13px var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+label.field { display: grid; gap: 5px; }
+label.field > span { font-size: 15px; color: var(--muted); }
+input[type=text], input[type=password] { font: inherit; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); width: 100%; min-width: 0; }
+input.code { font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button { font: inherit; cursor: pointer; border-radius: 10px; padding: 11px 18px; border: 1px solid var(--line); background: transparent; color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button:disabled { opacity: .45; cursor: default; }
+button.link { border: 0; padding: 0; color: var(--accent); text-decoration: underline; background: none; font-size: 15px; }
+.nav { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.nav .grow { flex: 1; }
+.count { display: flex; gap: 10px; flex-wrap: wrap; }
+.count button { min-width: 64px; font: 700 26px var(--display); padding: 12px 0; }
+.count button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.rows { display: grid; gap: 10px; }
+.namerow { display: grid; grid-template-columns: 28px 1fr 110px; gap: 10px; align-items: center; }
+.namerow .n { font: 600 15px var(--mono); color: var(--muted); }
+.note { color: var(--muted); font-size: 15px; margin: 0; }
+.err { color: var(--bad); font-size: 15px; margin: 0; min-height: 1.3em; }
+.group { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.group .top { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: 600 14px var(--mono); letter-spacing: .04em; padding: 7px 12px; border-radius: 999px; }
+.chip[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.sc { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: center; }
+.builtin { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 15px; }
+.builtin b { font: 600 14px var(--mono); }
+.kitcode { font: 500 32px/1 var(--mono); letter-spacing: .14em; padding: 16px; border-radius: 12px; background: var(--oled); color: var(--pixel); text-align: center; }
+.plug { display: grid; gap: 8px; }
+.plug li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); }
+.plug ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.plug .who { font: 700 20px var(--display); letter-spacing: .05em; flex: 1; }
+.plug .call { font: 500 14px var(--mono); color: var(--muted); }
+.plug .state { font-size: 14px; color: var(--muted); text-align: right; }
+.plug li.now { border-color: var(--accent); background: var(--tint); }
+.plug li.ok .state { color: var(--good); font-weight: 600; }
+.plug li.bad .state { color: var(--bad); }
+.tick { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); flex: none; display: grid; place-items: center; font-size: 13px; color: var(--accent-ink); }
+.ok .tick { background: var(--good); border-color: var(--good); }
+.now .tick { border-color: var(--accent); }
+.oled { background: var(--oled); color: var(--pixel); font: 600 22px/1.2 var(--mono); border-radius: 10px; padding: 14px; text-align: center; letter-spacing: .06em; }
+.oled small { display: block; font-size: 12px; opacity: .8; letter-spacing: .1em; margin-top: 6px; }
+.links { display: grid; gap: 6px; }
+.links a { color: var(--accent); font-family: var(--mono); font-size: 15px; overflow-wrap: anywhere; }
+.banner { border-radius: 12px; padding: 14px 16px; border: 1px solid var(--bad); color: var(--bad); }
+[hidden] { display: none !important; }
+</style></head>
+<body><main>
+<div class="brand"><span class="mark"><i class="d"></i><i></i><i class="d"></i><i></i></span>Morse stations</div>
+<div class="rail" id="rail"></div>
+<div id="noSerial" class="banner" hidden>Setup talks to the stations over USB, which needs <b>Google Chrome</b> or <b>Microsoft Edge</b> on a computer. Open this page in one of those to continue.</div>
+<section class="card" id="card"></section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clean = (v, n) => v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, n);
+const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const BUILTIN = [['DIN', 'DINNER IS READY'], ['RU', 'ARE YOU THERE?'], ['UP', 'GET UP / GET READY'], ['COME', 'COME HERE'], ['HELP', 'HELP, and the alarm sounds on every station']];
+const RESERVED = BUILTIN.map(b => b[0]).concat(['FLIP']);
+const SUGGEST = [['WFD', "WHAT'S FOR DINNER?"], ['DOG', 'TAKE THE DOG OUT'], ['OMW', 'ON MY WAY'], ['BRB', 'BE RIGHT BACK'], ['GN', 'GOOD NIGHT'], ['LUV', 'LOVE YOU']];
+
+// ---- The plan, remembered in this browser (never the Wi-Fi password) ----
+const fresh = () => ({ step: 0, count: 0, ssid: '', names: [], groups: [], codes: [], kit: '', done: {} });
+let plan = fresh(), pass = '';
+try { Object.assign(plan, JSON.parse(localStorage.getItem('morsePlan') || '{}')); } catch (_) {}
+const keep = () => { try { localStorage.setItem('morsePlan', JSON.stringify(plan)); } catch (_) {} };
+if (!plan.kit) plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join('');
+
+const STEPS = ['Welcome', 'How many', 'Wi-Fi', 'Names', 'Groups', 'Shortcuts', 'Kit code', 'Plug in', 'Done'];
+function go(n) { plan.step = n; keep(); render(); window.scrollTo(0, 0); }
+function rail() {
+  $('rail').innerHTML = STEPS.slice(1).map((_, i) => `<span class="${i + 1 < plan.step ? 'done' : i + 1 === plan.step ? 'now' : ''}"></span>`).join('');
+}
+function nav(backTo, nextLabel, nextFn, nextOff) {
+  return `<div class="nav">${backTo !== null ? `<button type="button" id="back">Back</button>` : ''}<span class="grow"></span>
+    ${nextLabel ? `<button type="button" class="primary" id="next"${nextOff ? ' disabled' : ''}>${nextLabel}</button>` : ''}</div>`;
+}
+function wireNav(backTo, nextFn) {
+  if ($('back')) $('back').onclick = () => go(backTo);
+  if ($('next')) $('next').onclick = nextFn;
+}
+
+// ---- Steps ----
+const VIEWS = [
+  // 0 Welcome
+  () => {
+    const started = plan.count > 0 && Object.keys(plan.done).length;
+    $('card').innerHTML = `<h1>Let's set up your Morse stations</h1>
+      <p class="lede">A few questions about your household, then you'll plug each station into this computer for a minute. You'll need your Wi-Fi password and the USB-C cable.</p>
+      <div class="nav">${started ? '<button type="button" id="over">Start over</button>' : ''}<span class="grow"></span>
+      <button type="button" class="primary" id="next">${started ? 'Continue where I left off' : 'Get started'}</button></div>`;
+    $('next').onclick = () => go(started ? 7 : 1);
+    if ($('over')) $('over').onclick = () => { plan = fresh(); plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join(''); go(1); };
+  },
+  // 1 How many
+  () => {
+    $('card').innerHTML = `<span class="stepname">Step 1 of 7</span><h1>How many stations do you have?</h1>
+      <p class="lede">Count the stations in the box (and any you're adding).</p>
+      <div class="count">${[2, 3, 4, 5, 6, 7, 8].map(n => `<button type="button" data-n="${n}" aria-pressed="${plan.count === n}">${n}</button>`).join('')}</div>
+      ${nav(0, 'Next', null, !plan.count)}`;
+    $('card').querySelectorAll('[data-n]').forEach(b => b.onclick = () => {
+      plan.count = +b.dataset.n;
+      plan.names = Array.from({ length: plan.count }, (_, i) => plan.names[i] || { name: '', call: '' });
+      keep(); render();
+    });
+    wireNav(0, () => go(2));
+  },
+  // 2 Wi-Fi
+  () => {
+    $('card').innerHTML = `<span class="stepname">Step 2 of 7</span><h1>Your Wi-Fi</h1>
+      <p class="lede">The stations use your home Wi-Fi to reach each other anywhere in the house.</p>
+      <label class="field"><span>Wi-Fi name</span><input id="ssid" type="text" autocomplete="off" spellcheck="false" value="${esc(plan.ssid)}"></label>
+      <label class="field"><span>Wi-Fi password</span><input id="pass" type="password" autocomplete="off" value="${esc(pass)}"></label>
+      <p class="note">It must be a 2.4 GHz network (most home Wi-Fi is). <button type="button" class="link" id="show">Show password</button></p>
+      <p class="err" id="err"></p>${nav(1, 'Next')}`;
+    $('show').onclick = () => { const p = $('pass'); p.type = p.type === 'password' ? 'text' : 'password'; $('show').textContent = p.type === 'password' ? 'Show password' : 'Hide password'; };
+    wireNav(1, () => {
+      plan.ssid = $('ssid').value.trim(); pass = $('pass').value;
+      if (!plan.ssid) { $('err').textContent = 'Enter the Wi-Fi name.'; return; }
+      go(3);
+    });
+  },
+  // 3 Names
+  () => {
+    $('card').innerHTML = `<span class="stepname">Step 3 of 7</span><h1>Name each station</h1>
+      <p class="lede">Use who it's for or where it lives: MOM, JAMES, KITCHEN. The name shows on its screen.
+      The call sign is what people key to message just that station.</p>
+      <div class="rows">${plan.names.map((s, i) => `<div class="namerow"><span class="n">${i + 1}</span>
+        <input class="code" type="text" maxlength="8" data-i="${i}" data-k="name" placeholder="NAME" value="${esc(s.name)}" aria-label="Station ${i + 1} name">
+        <input class="code" type="text" maxlength="3" data-i="${i}" data-k="call" placeholder="CALL" value="${esc(s.call)}" aria-label="Station ${i + 1} call sign"></div>`).join('')}</div>
+      <p class="note">Names: up to 8 letters or numbers. Call signs: 1 to 3, usually the first letter.</p>
+      <p class="err" id="err"></p>${nav(2, 'Next')}`;
+    $('card').querySelectorAll('input[data-i]').forEach(inp => inp.oninput = () => {
+      const s = plan.names[inp.dataset.i];
+      if (inp.dataset.k === 'name') {
+        inp.value = clean(inp.value, 8); s.name = inp.value;
+        if (!s.callTouched) { s.call = s.name.slice(0, 1); $('card').querySelector(`[data-i="${inp.dataset.i}"][data-k=call]`).value = s.call; }
+      } else { inp.value = clean(inp.value, 3); s.call = inp.value; s.callTouched = true; }
+      keep();
+    });
+    wireNav(2, () => {
+      const names = plan.names.map(s => s.name), calls = plan.names.map(s => s.call);
+      let e = '';
+      if (names.some(n => !n)) e = 'Give every station a name.';
+      else if (calls.some(c => !c)) e = 'Give every station a call sign.';
+      else if (new Set(names).size < names.length) e = 'Two stations have the same name.';
+      else if (new Set(calls).size < calls.length) e = 'Two stations have the same call sign. Change one, for example MOM = M and MIA = MI.';
+      else if (calls.includes('ALL')) e = 'ALL is taken: it already means every station.';
+      $('err').textContent = e; if (!e) go(4);
+    });
+  },
+  // 4 Groups
+  () => {
+    const names = plan.names.map(s => s.name);
+    plan.groups.forEach(g => g.members = g.members.filter(m => names.includes(m)));
+    $('card').innerHTML = `<span class="stepname">Step 4 of 7</span><h1>Groups <span class="lede" style="font:inherit;font-size:20px">(optional)</span></h1>
+      <p class="lede">A group is one call sign that reaches several stations, like <b>P</b> for both parents or <b>K</b> for the kids.
+      <b>ALL</b> always reaches everyone, so you only need groups for smaller sets.</p>
+      <div class="rows" id="groups">${plan.groups.map((g, i) => `<div class="group">
+        <div class="top"><input class="code" type="text" maxlength="3" data-g="${i}" data-k="call" placeholder="P" value="${esc(g.call)}" aria-label="Group call sign">
+          <input class="code" type="text" maxlength="8" data-g="${i}" data-k="name" placeholder="PARENTS" value="${esc(g.name)}" aria-label="Group name">
+          <button type="button" data-del="${i}">Remove</button></div>
+        <div class="chips">${names.map(n => `<button type="button" class="chip" data-g="${i}" data-m="${esc(n)}" aria-pressed="${g.members.includes(n)}">${esc(n)}</button>`).join('')}</div>
+      </div>`).join('')}</div>
+      <div><button type="button" id="add">Add a group</button></div>
+      <p class="err" id="err"></p>${nav(3, plan.groups.length ? 'Next' : 'Skip')}`;
+    $('add').onclick = () => { plan.groups.push({ call: '', name: '', members: [] }); keep(); render(); };
+    $('card').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { plan.groups.splice(+b.dataset.del, 1); keep(); render(); });
+    $('card').querySelectorAll('input[data-g]').forEach(inp => inp.oninput = () => {
+      inp.value = clean(inp.value, inp.dataset.k === 'call' ? 3 : 8); plan.groups[inp.dataset.g][inp.dataset.k] = inp.value; keep();
+    });
+    $('card').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+      const g = plan.groups[b.dataset.g], m = b.dataset.m;
+      g.members = g.members.includes(m) ? g.members.filter(x => x !== m) : g.members.concat(m);
+      b.setAttribute('aria-pressed', g.members.includes(m)); keep();
+    });
+    wireNav(3, () => {
+      const calls = plan.names.map(s => s.call); let e = '';
+      for (const g of plan.groups) {
+        if (!g.call || !g.name) e = 'Give each group a call sign and a name, or remove it.';
+        else if (g.members.length < 2) e = `Pick at least two stations for ${g.name}.`;
+        else if (calls.includes(g.call) || g.call === 'ALL' || plan.groups.filter(x => x.call === g.call).length > 1) e = `Call sign ${g.call} is already used.`;
+        if (e) break;
+      }
+      $('err').textContent = e; if (!e) go(5);
+    });
+  },
+  // 5 Shortcuts
+  () => {
+    const taken = c => RESERVED.includes(c) || plan.codes.some(x => x.code === c);
+    $('card').innerHTML = `<span class="stepname">Step 5 of 7</span><h1>Shortcuts</h1>
+      <p class="lede">Key a short code and everyone sees the whole message. These come built in:</p>
+      <div class="builtin">${BUILTIN.map(([c, m]) => `<b>${c}</b><span>${esc(m)}</span>`).join('')}</div>
+      <p class="lede">Add your own (you can change them any time on a station's control page):</p>
+      <div class="rows">${plan.codes.map((c, i) => `<div class="sc">
+        <input class="code" type="text" maxlength="6" data-c="${i}" data-k="code" placeholder="WFD" value="${esc(c.code)}" aria-label="Code">
+        <input type="text" maxlength="40" data-c="${i}" data-k="message" placeholder="WHAT'S FOR DINNER?" value="${esc(c.message)}" style="text-transform:uppercase" aria-label="Message">
+        <button type="button" data-del="${i}">Remove</button></div>`).join('')}</div>
+      <div class="chips">${SUGGEST.filter(([c]) => !taken(c)).map(([c, m]) => `<button type="button" class="chip" data-s="${c}" title="${esc(m)}">+ ${c} · ${esc(m)}</button>`).join('')}
+        <button type="button" class="chip" id="blank">+ Your own</button></div>
+      <p class="err" id="err"></p>${nav(4, plan.codes.length ? 'Next' : 'Skip')}`;
+    $('card').querySelectorAll('[data-s]').forEach(b => b.onclick = () => { const s = SUGGEST.find(x => x[0] === b.dataset.s); plan.codes.push({ code: s[0], message: s[1] }); keep(); render(); });
+    $('blank').onclick = () => { plan.codes.push({ code: '', message: '' }); keep(); render(); };
+    $('card').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { plan.codes.splice(+b.dataset.del, 1); keep(); render(); });
+    $('card').querySelectorAll('input[data-c]').forEach(inp => inp.oninput = () => {
+      if (inp.dataset.k === 'code') inp.value = clean(inp.value, 6);
+      plan.codes[inp.dataset.c][inp.dataset.k] = inp.dataset.k === 'code' ? inp.value : inp.value.toUpperCase().slice(0, 40); keep();
+    });
+    wireNav(4, () => {
+      let e = '';
+      for (const c of plan.codes) {
+        if (!c.code || !c.message.trim()) e = 'Fill in each shortcut\'s code and message, or remove it.';
+        else if (RESERVED.includes(c.code)) e = `${c.code} is built in already.`;
+        else if (plan.codes.filter(x => x.code === c.code).length > 1) e = `${c.code} is in the list twice.`;
+        if (e) break;
+      }
+      $('err').textContent = e; if (!e) go(6);
+    });
+  },
+  // 6 Kit code
+  () => {
+    $('card').innerHTML = `<span class="stepname">Step 6 of 7</span><h1>Your kit code</h1>
+      <p class="lede">This code ties your stations together. Write it down and keep it with the stations: you'll need it to add a station later or update them.</p>
+      <div class="kitcode">${plan.kit.slice(0, 4)} ${plan.kit.slice(4)}</div>
+      ${nav(5, 'I wrote it down')}`;
+    wireNav(5, () => go(7));
+  },
+  // 7 Plug in
+  () => {
+    const todo = plan.names.findIndex(s => !plan.done[s.name]);
+    const cur = todo < 0 ? null : plan.names[todo];
+    $('card').innerHTML = `<span class="stepname">Step 7 of 7</span><h1>${cur ? `Plug in the station for ${esc(cur.name)}` : 'All stations are set up'}</h1>
+      ${cur ? `<p class="lede">Connect one station to this computer with the USB-C cable. Its screen should say:</p>
+        <div class="oled">HELLO<small>OPEN MORSE SETUP</small></div>
+        <p class="lede">Click <b>Connect</b> and choose the station in the list Chrome shows (it's a USB serial device).</p>` : ''}
+      ${!pass ? `<label class="field"><span>Wi-Fi password for "${esc(plan.ssid)}" (needed again after the page was reloaded)</span><input id="pass" type="password" autocomplete="off"></label>` : ''}
+      <div class="plug"><ul>${plan.names.map((s, i) => {
+        const d = plan.done[s.name], st = d ? (d.wifi ? 'Set up' : 'Set up, not on Wi-Fi') : i === todo ? 'Next' : '';
+        return `<li class="${d ? (d.wifi ? 'ok' : 'bad') : i === todo ? 'now' : ''}"><span class="tick">${d ? '✓' : ''}</span>
+          <span class="who">${esc(s.name)} <span class="call">${esc(s.call)}</span></span><span class="state" id="st${i}">${st}</span></li>`;
+      }).join('')}</ul></div>
+      <p class="err" id="err" role="alert"></p>
+      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span>
+        ${cur ? '<button type="button" class="primary" id="connect">Connect</button>' : '<button type="button" class="primary" id="next">Finish</button>'}</div>`;
+    $('back').onclick = () => go(6);
+    if ($('pass')) $('pass').oninput = e => pass = e.target.value;
+    if ($('next')) $('next').onclick = () => go(8);
+    if ($('connect')) $('connect').onclick = () => setUpStation(todo);
+  },
+  // 8 Done
+  () => {
+    const first = plan.names[0];
+    $('card').innerHTML = `<h1>You're all set</h1>
+      <p class="lede">Every station shows its name and READY. Try it: key <b>DIN</b> on any station and everyone sees DINNER IS READY.
+      To message one station, key its call sign, then <b>BT</b> (−···−), then the message.</p>
+      <p class="lede">Each station has a control page on your Wi-Fi for volume, shortcuts and updates:</p>
+      <div class="links">${plan.names.map(s => `<a href="http://morse-${s.name.toLowerCase()}.local/" target="_blank" rel="noopener">morse-${s.name.toLowerCase()}.local</a>`).join('')}</div>
+      <p class="note">Kit code: <b style="font-family:var(--mono)">${plan.kit}</b></p>
+      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" id="over">Set up another kit</button></div>`;
+    $('back').onclick = () => go(7);
+    $('over').onclick = () => { plan = fresh(); plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join(''); pass = ''; go(0); };
+  },
+];
+function render() { rail(); VIEWS[plan.step](); }
+
+// ---- USB serial: "@" lines to and from the station ----
+let port = null, waiters = [];
+function onLine(line) {
+  if (!line.startsWith('@')) return;
+  waiters = waiters.filter(w => { if (w.prefixes.some(p => line.startsWith(p))) { w.resolve(line); return false; } return true; });
+}
+function waitFor(prefixes, ms) {
+  return new Promise((resolve, reject) => {
+    const w = { prefixes, resolve: v => { clearTimeout(t); resolve(v); } };
+    const t = setTimeout(() => { waiters = waiters.filter(x => x !== w); reject(new Error('timeout')); }, ms);
+    waiters.push(w);
+  });
+}
+async function readLoop(p) {
+  const dec = new TextDecoder(); let buf = '';
+  while (p.readable) {
+    const r = p.readable.getReader();
+    try {
+      for (;;) {
+        const { value, done } = await r.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i).replace(/\r$/, '')); buf = buf.slice(i + 1); }
+      }
+    } catch (_) { break; } finally { r.releaseLock(); }
+  }
+  try { await p.close(); } catch (_) {}
+  if (port === p) port = null;
+}
+async function openPort(p) { await p.open({ baudRate: 115200 }); port = p; readLoop(p); }
+async function send(line) {
+  if (!port || !port.writable) throw new Error('lost');
+  const w = port.writable.getWriter();
+  try { await w.write(new TextEncoder().encode(line + '\n')); } finally { w.releaseLock(); }
+}
+async function reopen(ms) {                // after a restart the station may come back as a new USB device
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (port && port.readable) return true;
+    for (const p of await navigator.serial.getPorts()) {
+      if (p.readable) { port = p; return true; }
+      try { await openPort(p); return true; } catch (_) {}
+    }
+    await new Promise(r => setTimeout(r, 700));
+  }
+  return false;
+}
+const parse = l => JSON.parse(l.slice(l.indexOf('{')));
+const groupString = () => plan.groups.map(g => [g.call, g.name, ...g.members].join(' ')).join(';');
+
+async function setUpStation(i) {
+  const s = plan.names[i], say = t => { $('st' + i).textContent = t; }, fail = t => { $('err').textContent = t; $('connect').disabled = false; };
+  $('err').textContent = '';
+  if (!pass && $('pass')) { pass = $('pass').value; }
+  try {
+    const p = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
+    if (port && port !== p) { try { await port.close(); } catch (_) {} }
+    if (!p.readable) await openPort(p); else port = p;
+  } catch (e) { if (e.name !== 'NotFoundError') fail('Couldn\'t open the station. Unplug it, plug it back in, and try again.'); return; }
+  $('connect').disabled = true;
+  try {
+    say('Connecting…');
+    let info; for (let k = 0; k < 8 && !info; k++) { await send('@INFO'); info = await waitFor(['@INFO'], 1500).catch(() => null); }
+    if (!info) throw new Error('The station didn\'t answer. Unplug it, plug it back in, and click Connect again.');
+    const board = parse(info);
+    const other = plan.names.find(x => x !== s && plan.done[x.name] && plan.done[x.name].mac === board.mac);
+    if (other) throw new Error(`That's the station you already set up as ${other.name}. Plug in a different one.`);
+    say('Saving…');
+    const q = new URLSearchParams({ ssid: plan.ssid, pass, name: s.name, call: s.call, kit: plan.kit, groups: groupString() });
+    await send('@SET ' + q.toString());
+    const r = await waitFor(['@OK', '@ERR'], 4000);
+    if (r.startsWith('@ERR')) throw new Error(r.slice(5));
+    say('Restarting and joining Wi-Fi…');
+    if (!port || !port.readable) await reopen(15000);
+    const ready = parse(await waitFor(['@READY'], 60000));
+    if (ready.wifi && plan.codes.length) {
+      say('Adding shortcuts…');
+      for (const c of plan.codes) { await send('@CODE ' + new URLSearchParams({ code: c.code, message: c.message.trim() })); await waitFor(['@OK', '@ERR'], 3000).catch(() => {}); }
+    }
+    plan.done[s.name] = { mac: board.mac, wifi: ready.wifi }; keep();
+    if (!ready.wifi) { render(); fail(`${s.name} is saved but couldn't join "${plan.ssid}". Check the Wi-Fi name and password (step 2), then plug it in again.`); delete plan.done[s.name]; keep(); return; }
+    render();
+    const next = plan.names.find(x => !plan.done[x.name]);
+    if (next) $('err').textContent = '';
+    if (next) $('card').querySelector('.lede').innerHTML = `<b>${esc(s.name)} is ready.</b> Unplug it, put it where it lives, and plug in the station for ${esc(next.name)}. Its screen should say:`;
+  } catch (e) {
+    say('');
+    fail(e.message === 'timeout' || e.message === 'lost' ? 'The station stopped answering. Unplug it, plug it back in, and click Connect again.' : e.message);
+  }
+}
+
+if (!('serial' in navigator)) $('noSerial').hidden = false;
+render();
+</script>
+</body></html>
