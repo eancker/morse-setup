@@ -382,7 +382,9 @@ const ADD = [
     $('nm').oninput = e => { e.target.value = clean(e.target.value, 8); add.name = e.target.value; if (!add.callTouched) { add.call = add.name.slice(0, 1); $('cl').value = add.call; } };
     $('cl').oninput = e => { e.target.value = clean(e.target.value, 3); add.call = e.target.value; add.callTouched = true; };
     $('next').onclick = () => {
-      const e = nameProblem(add.name, add.call, add.stations, add.groups);
+      const back = add.stations.find(x => x.name === add.name && x.call === add.call && x.mac !== add.fromMac);
+      add.rejoin = back ? back.mac : '';
+      const e = nameProblem(add.name, add.call, add.stations.filter(x => x !== back), add.groups);
       $('err').textContent = e; if (!e) addGo(3);
     };
   },
@@ -456,8 +458,12 @@ async function addStation() {
     say('Connecting…');
     const board = await askInfo();
     if (!board) throw new Error('The station didn\'t answer. Unplug it, plug it back in, and click Connect again.');
-    if (board.mac === add.fromMac || add.stations.some(x => x.mac === board.mac) || (board.configured && board.kit === add.kit))
-      throw new Error(`That's ${board.name || 'a station'}, already in your kit. Unplug it and plug in the new one.`);
+    if (board.configured && board.kit === add.kit)
+      throw new Error(`That's ${board.name}, already working in your kit. Unplug it and plug in ${add.rejoin ? add.name + '\'s station' : 'the new one'}.`);
+    if (add.rejoin && board.mac !== add.rejoin)
+      throw new Error(`That isn't the station that was ${add.name} before. Plug in ${add.name}'s station, or go Back and pick a new name.`);
+    if (!add.rejoin && add.stations.some(x => x.mac === board.mac))
+      throw new Error(`That station was ${add.stations.find(x => x.mac === board.mac).name} before. Go Back and give it that name again.`);
     if (board.configured) throw new Error(`This station is set up as ${board.name} in a different kit. To reuse it, unplug it, hold its key while plugging it back in until the screen says HELLO, then click Connect.`);
     say('Saving…');
     await send('@SET ' + new URLSearchParams({ ssid: add.ssid, pass, name: add.name, call: add.call, kit: add.kit, groups: add.groups }));
@@ -468,7 +474,7 @@ async function addStation() {
     const ready = parse(await waitFor(['@READY'], 60000));
     if (!ready.wifi) throw new Error(`${add.name} is saved but couldn't join "${add.ssid}". Check the password (Back, Back), then plug it in again.`);
     const others = (ready.stations || []).map(x => x.name);
-    const clash = (ready.stations || []).find(x => x.name === add.name || x.call === add.call);
+    const clash = (ready.stations || []).find(x => x.mac !== board.mac && (x.name === add.name || x.call === add.call));
     if (clash) throw new Error(`Your kit already has ${clash.name} (${clash.call}). Click Back, pick a different name or call sign, and connect again.`);
     add.done = { mac: board.mac, others };
     render();
