@@ -63,11 +63,12 @@ button.link { border: 0; padding: 0; color: var(--accent); text-decoration: unde
 .builtin b { font: 600 14px var(--mono); }
 .kitcode { font: 500 32px/1 var(--mono); letter-spacing: .14em; padding: 16px; border-radius: 12px; background: var(--oled); color: var(--pixel); text-align: center; }
 .plug { display: grid; gap: 8px; }
-.plug li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); }
+.plug li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); }
 .plug ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .plug .who { font: 700 20px var(--display); letter-spacing: .05em; flex: 1; }
 .plug .call { font: 500 14px var(--mono); color: var(--muted); }
-.plug .state { font-size: 14px; color: var(--muted); text-align: right; }
+.plug .state { font-size: 14px; color: var(--muted); text-align: right; margin-left: auto; }
+.card, main { min-width: 0; } .plug li { min-width: 0; } .plug .state button.link { font-size: 14px; }
 .plug li.now { border-color: var(--accent); background: var(--tint); }
 .plug li.ok .state { color: var(--good); font-weight: 600; }
 .plug li.bad .state { color: var(--bad); }
@@ -497,30 +498,53 @@ function kitView() {
       <p class="note">Read from ${esc(k.name)} just now.</p>
       <div class="kitcode">${k.kit.slice(0, 4)} ${k.kit.slice(4)}</div>
       <p class="lede">Wi-Fi: <b>${esc(k.ssid)}</b></p>
-      <div class="plug"><ul>${k.all.map(x => `<li class="ok"><span class="tick">✓</span>
+      <div class="plug"><ul>${k.all.map((x, n) => {
+        const on = x.self || (x.ago >= 0 && x.ago < 60);
+        const when = x.self ? 'plugged in here' : on ? 'on now'
+          : x.ago >= 0 ? `last heard ${ago(x.ago)}` : `not heard in ${ago(k.up).replace(' ago', '')}`;
+        return `<li class="${on ? 'ok' : 'bad'}"><span class="tick">${on ? '✓' : ''}</span>
         <span class="who">${esc(x.name)} <span class="call">${esc(x.call)}</span></span>
-        <span class="state"><a href="http://morse-${x.name.toLowerCase()}.local/" target="_blank" rel="noopener">control page</a></span></li>`).join('')}</ul></div>
+        <span class="state">${when} · <a href="http://morse-${x.name.toLowerCase()}.local/" target="_blank" rel="noopener">control page</a>
+          ${on ? '' : ` · <button type="button" class="link" data-rm="${n}">${k.confirm === n ? 'Tap again to remove' : 'Remove'}</button>`}</span></li>`;
+      }).join('')}</ul></div>
+      <p class="note">Remove a station that's lost, broken or given away. Resetting a station (hold its key while plugging it in) removes it by itself.</p>
       <p class="lede">${k.groups.length ? 'Groups: ' + k.groups.map(g => `<b>${esc(g.call)}</b> ${esc(g.name)} (${g.members.map(esc).join(', ')})`).join('; ') + '. ' : ''}<b>ALL</b> reaches everyone.</p>
-      <p class="note">${k.all.length} of 8 stations. A station that's switched off may not be listed until it's back on.</p>
-      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" id="addOne">Add a station</button></div>`
+      <p class="note">${k.all.length} of 8 stations.</p>
+      <p class="err" id="err" role="alert"></p>
+      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" id="again">Refresh</button><button type="button" id="addOne">Add a station</button></div>`
     : `<h1>See my kit</h1>
       <p class="lede">Connect any working station to this computer with the USB-C cable, then click <b>Connect</b> and pick it.</p>
       <p class="err" id="err" role="alert"></p>
       <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" class="primary" id="connect">Connect</button></div>`;
   $('back').onclick = () => { add = null; render(); };
   if ($('addOne')) $('addOne').onclick = () => { add = { step: 0, kit: '', ssid: '', groups: '', stations: [], name: '', call: '', fromMac: '' }; render(); };
-  if ($('connect')) $('connect').onclick = async () => {
+  $('card').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
+    const n = +b.dataset.rm, x = k.all[n];
+    if (k.confirm !== n) { k.confirm = n; render(); return; }
+    k.confirm = null; b.disabled = true; b.textContent = 'Removing…';
+    let r = null;
+    try { await send('@FORGET ' + x.mac); r = await waitFor(['@OK', '@ERR'], 5000); } catch (_) {}
+    if (r === '@OK') { k.all.splice(n, 1); render(); $('err').textContent = ''; }
+    else { render(); $('err').textContent = r ? r.slice(5) : 'The station didn\'t answer. Is it still plugged in?'; }
+  });
+  if ($('again')) $('again').onclick = () => readKit();
+  if ($('connect')) $('connect').onclick = () => readKit(true);
+}
+const ago = s => s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} hours ago` : `${Math.round(s / 86400)} days ago`;
+async function readKit(pick) {
+  {
     const err = $('err'); err.textContent = '';
-    try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') err.textContent = 'Couldn\'t open the station. Unplug it, plug it back in, and try again.'; return; }
-    $('connect').disabled = true;
+    if (pick || !port || !port.writable) try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') err.textContent = 'Couldn\'t open the station. Unplug it, plug it back in, and try again.'; return; }
+    const btn = $('connect') || $('again'); btn.disabled = true;
     const i = await askInfo();
-    $('connect').disabled = false;
-    if (!i) { err.textContent = 'The station didn\'t answer. Unplug it, plug it back in, and click Connect again.'; return; }
+    btn.disabled = false;
+    if (!i) { err.textContent = 'The station didn\'t answer. Unplug it, plug it back in, and try again.'; return; }
     if (!i.configured) { err.textContent = 'This station isn\'t set up (its screen says HELLO). Plug in one that\'s working.'; return; }
     const groups = (i.groups || '').split(';').map(g => g.trim().split(/\s+/)).filter(g => g.length > 2).map(g => ({ call: g[0], name: g[1], members: g.slice(2) }));
-    add.kit = { name: i.name, kit: i.kit, ssid: i.ssid, groups, all: [{ name: i.name, call: i.call }, ...(i.stations || [])].sort((a, b) => a.name.localeCompare(b.name)) };
+    add.kit = { name: i.name, kit: i.kit, ssid: i.ssid, groups, up: i.up || 0, confirm: null,
+      all: [{ name: i.name, call: i.call, mac: i.mac, self: true }, ...(i.stations || [])].sort((a, b) => a.name.localeCompare(b.name)) };
     render();
-  };
+  }
 }
 function addGo(n) { add.step = n; render(); window.scrollTo(0, 0); }
 
