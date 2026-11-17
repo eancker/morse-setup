@@ -78,6 +78,14 @@ button.link { border: 0; padding: 0; color: var(--accent); text-decoration: unde
 .oled small { display: block; font-size: 12px; opacity: .8; letter-spacing: .1em; margin-top: 6px; }
 .links { display: grid; gap: 6px; }
 .links a { color: var(--accent); font-family: var(--mono); font-size: 15px; overflow-wrap: anywhere; }
+.nets { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 320px; overflow-y: auto; }
+.nets button { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 14px; }
+.nets button[aria-pressed=true] { border-color: var(--accent); background: var(--tint); }
+.nets .ssid { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.nets .lock { font-size: 13px; color: var(--muted); }
+.sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+.sig i { display: block; width: 4px; border-radius: 1px; background: var(--line); }
+.sig i.on { background: var(--ink); }
 .banner { border-radius: 12px; padding: 14px 16px; border: 1px solid var(--bad); color: var(--bad); }
 [hidden] { display: none !important; }
 </style></head>
@@ -147,11 +155,15 @@ const VIEWS = [
   () => {
     $('card').innerHTML = `<span class="stepname">Step 2 of 7</span><h1>Your Wi-Fi</h1>
       <p class="lede">The stations use your home Wi-Fi to reach each other anywhere in the house.</p>
+      <div class="nav" style="justify-content:flex-start"><button type="button" id="scan">Find my Wi-Fi</button></div>
+      <p class="note" id="scanNote">Plug any station into this computer and it will list the networks it can hear.</p>
+      <ul class="nets" id="nets"></ul>
       <label class="field"><span>Wi-Fi name</span><input id="ssid" type="text" autocomplete="off" spellcheck="false" value="${esc(plan.ssid)}"></label>
       <label class="field"><span>Wi-Fi password</span><input id="pass" type="password" autocomplete="off" value="${esc(pass)}"></label>
       <p class="note">It must be a 2.4 GHz network (most home Wi-Fi is). <button type="button" class="link" id="show">Show password</button></p>
       <p class="err" id="err"></p>${nav(1, 'Next')}`;
     $('show').onclick = () => { const p = $('pass'); p.type = p.type === 'password' ? 'text' : 'password'; $('show').textContent = p.type === 'password' ? 'Show password' : 'Hide password'; };
+    $('scan').onclick = scanWifi;
     wireNav(1, () => {
       plan.ssid = $('ssid').value.trim(); pass = $('pass').value;
       if (!plan.ssid) { $('err').textContent = 'Enter the Wi-Fi name.'; return; }
@@ -348,17 +360,45 @@ async function reopen(ms) {                // after a restart the station may co
   return false;
 }
 const parse = l => JSON.parse(l.slice(l.indexOf('{')));
+
+// Ask a plugged-in station which networks it hears. A browser can't scan Wi-Fi,
+// but the station can, and it only hears the 2.4 GHz networks it can join.
+async function connectAny() {
+  const p = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
+  if (port && port !== p) { try { await port.close(); } catch (_) {} }
+  if (!p.readable) await openPort(p); else port = p;
+}
+async function scanWifi() {
+  const note = $('scanNote'), list = $('nets');
+  try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') note.textContent = 'Couldn\'t open the station. Unplug it, plug it back in, and try again.'; return; }
+  $('scan').disabled = true; note.textContent = 'Listening for Wi-Fi…'; list.innerHTML = '';
+  try {
+    let line; for (let k = 0; k < 3 && !line; k++) { await send('@SCAN'); line = await waitFor(['@SCAN'], 9000).catch(() => null); }
+    if (!line) throw new Error('none');
+    const nets = JSON.parse(line.slice(line.indexOf('[')));
+    if (!nets.length) { note.textContent = 'The station couldn\'t hear any Wi-Fi. Move it closer to the router, or type the name below.'; return; }
+    note.textContent = 'Pick your network. Stronger signals are at the top; this is the signal where the station is now.';
+    const bars = r => r > -60 ? 4 : r > -70 ? 3 : r > -80 ? 2 : 1;
+    list.innerHTML = nets.map((n, i) => `<li><button type="button" data-i="${i}" aria-pressed="${n.ssid === $('ssid').value}">
+      <span class="sig" aria-label="${bars(n.rssi)} of 4 bars">${[4, 7, 10, 14].map((h, b) => `<i style="height:${h}px" class="${b < bars(n.rssi) ? 'on' : ''}"></i>`).join('')}</span>
+      <span class="ssid">${esc(n.ssid)}</span>${n.open ? '<span class="lock">no password</span>' : ''}</button></li>`).join('');
+    list.querySelectorAll('button').forEach(b => b.onclick = () => {
+      const n = nets[+b.dataset.i];
+      $('ssid').value = n.ssid; plan.ssid = n.ssid; keep();
+      list.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      $('pass').focus();
+    });
+  } catch (_) {
+    note.textContent = 'This station can\'t search for Wi-Fi yet (it needs a newer version). Type the name below instead.';
+  } finally { $('scan').disabled = false; }
+}
 const groupString = () => plan.groups.map(g => [g.call, g.name, ...g.members].join(' ')).join(';');
 
 async function setUpStation(i) {
   const s = plan.names[i], say = t => { $('st' + i).textContent = t; }, fail = t => { $('err').textContent = t; $('connect').disabled = false; };
   $('err').textContent = '';
   if (!pass && $('pass')) { pass = $('pass').value; }
-  try {
-    const p = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
-    if (port && port !== p) { try { await port.close(); } catch (_) {} }
-    if (!p.readable) await openPort(p); else port = p;
-  } catch (e) { if (e.name !== 'NotFoundError') fail('Couldn\'t open the station. Unplug it, plug it back in, and try again.'); return; }
+  try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') fail('Couldn\'t open the station. Unplug it, plug it back in, and try again.'); return; }
   $('connect').disabled = true;
   try {
     say('Connecting…');
