@@ -77,6 +77,7 @@ button.link { border: 0; padding: 0; color: var(--accent); text-decoration: unde
 .oled { background: var(--oled); color: var(--pixel); font: 600 22px/1.2 var(--mono); border-radius: 10px; padding: 14px; text-align: center; letter-spacing: .06em; }
 .oled small { display: block; font-size: 12px; opacity: .8; letter-spacing: .1em; margin-top: 6px; }
 .links { display: grid; gap: 6px; }
+.addbox { margin-top: 22px; padding: 14px 16px; border: 1px solid var(--line, #8884); border-radius: 12px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .links a { color: var(--accent); font-family: var(--mono); font-size: 15px; overflow-wrap: anywhere; }
 .nets { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 320px; overflow-y: auto; }
 .nets button { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 14px; }
@@ -137,7 +138,8 @@ const VIEWS = [
       <p class="lede">A few questions about your household, then you'll plug each station into this computer for a minute. You'll need your Wi-Fi password and the USB-C cable.</p>
       <div class="nav">${started ? '<button type="button" id="over">Start over</button>' : ''}<span class="grow"></span>
       <button type="button" class="primary" id="next">${started ? 'Continue where I left off' : 'Get started'}</button></div>
-      <p class="note" style="margin-top:18px">Already have stations working? <button type="button" class="link" id="addOne">Add a station to my kit</button></p>`;
+      <div class="addbox"><div><b>Already have stations working?</b><br><span class="note">Add a new one, or put back one you reset.</span></div>
+        <button type="button" id="addOne">Add a station to my kit</button></div>`;
     $('addOne').onclick = () => { add = { step: 0, kit: '', ssid: '', groups: '', stations: [], name: '', call: '', fromMac: '' }; render(); };
     $('next').onclick = () => go(started ? 7 : 1);
     if ($('over')) $('over').onclick = () => { plan = fresh(); plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join(''); go(1); };
