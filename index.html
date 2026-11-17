@@ -139,7 +139,8 @@ const VIEWS = [
       <div class="nav">${started ? '<button type="button" id="over">Start over</button>' : ''}<span class="grow"></span>
       <button type="button" class="primary" id="next">${started ? 'Continue where I left off' : 'Get started'}</button></div>
       <div class="addbox"><div><b>Already have stations working?</b><br><span class="note">Add a new one, or put back one you reset.</span></div>
-        <button type="button" id="addOne">Add a station to my kit</button></div>`;
+        <div class="nav" style="margin:0"><button type="button" id="seeKit">See my kit</button><button type="button" id="addOne">Add a station to my kit</button></div></div>`;
+    $('seeKit').onclick = () => { add = { view: true, step: 0 }; render(); };
     $('addOne').onclick = () => { add = { step: 0, kit: '', ssid: '', groups: '', stations: [], name: '', call: '', fromMac: '' }; render(); };
     $('next').onclick = () => go(started ? 7 : 1);
     if ($('over')) $('over').onclick = () => { plan = fresh(); plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join(''); go(1); };
@@ -486,7 +487,41 @@ async function addStation() {
   }
 }
 
-function render() { rail(); add ? ADD[add.step]() : VIEWS[plan.step](); }
+function render() { rail(); add && add.view ? kitView() : add ? ADD[add.step]() : VIEWS[plan.step](); }
+
+// ---- See my kit: read it from any working station ----
+function kitView() {
+  $('rail').innerHTML = '';
+  const k = add.kit;
+  $('card').innerHTML = k ? `<h1>Your kit</h1>
+      <p class="note">Read from ${esc(k.name)} just now.</p>
+      <div class="kitcode">${k.kit.slice(0, 4)} ${k.kit.slice(4)}</div>
+      <p class="lede">Wi-Fi: <b>${esc(k.ssid)}</b></p>
+      <div class="plug"><ul>${k.all.map(x => `<li class="ok"><span class="tick">✓</span>
+        <span class="who">${esc(x.name)} <span class="call">${esc(x.call)}</span></span>
+        <span class="state"><a href="http://morse-${x.name.toLowerCase()}.local/" target="_blank" rel="noopener">control page</a></span></li>`).join('')}</ul></div>
+      <p class="lede">${k.groups.length ? 'Groups: ' + k.groups.map(g => `<b>${esc(g.call)}</b> ${esc(g.name)} (${g.members.map(esc).join(', ')})`).join('; ') + '. ' : ''}<b>ALL</b> reaches everyone.</p>
+      <p class="note">${k.all.length} of 8 stations. A station that's switched off may not be listed until it's back on.</p>
+      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" id="addOne">Add a station</button></div>`
+    : `<h1>See my kit</h1>
+      <p class="lede">Connect any working station to this computer with the USB-C cable, then click <b>Connect</b> and pick it.</p>
+      <p class="err" id="err" role="alert"></p>
+      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" class="primary" id="connect">Connect</button></div>`;
+  $('back').onclick = () => { add = null; render(); };
+  if ($('addOne')) $('addOne').onclick = () => { add = { step: 0, kit: '', ssid: '', groups: '', stations: [], name: '', call: '', fromMac: '' }; render(); };
+  if ($('connect')) $('connect').onclick = async () => {
+    const err = $('err'); err.textContent = '';
+    try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') err.textContent = 'Couldn\'t open the station. Unplug it, plug it back in, and try again.'; return; }
+    $('connect').disabled = true;
+    const i = await askInfo();
+    $('connect').disabled = false;
+    if (!i) { err.textContent = 'The station didn\'t answer. Unplug it, plug it back in, and click Connect again.'; return; }
+    if (!i.configured) { err.textContent = 'This station isn\'t set up (its screen says HELLO). Plug in one that\'s working.'; return; }
+    const groups = (i.groups || '').split(';').map(g => g.trim().split(/\s+/)).filter(g => g.length > 2).map(g => ({ call: g[0], name: g[1], members: g.slice(2) }));
+    add.kit = { name: i.name, kit: i.kit, ssid: i.ssid, groups, all: [{ name: i.name, call: i.call }, ...(i.stations || [])].sort((a, b) => a.name.localeCompare(b.name)) };
+    render();
+  };
+}
 function addGo(n) { add.step = n; render(); window.scrollTo(0, 0); }
 
 // ---- USB serial: "@" lines to and from the station ----
