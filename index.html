@@ -161,14 +161,10 @@ const VIEWS = [
       <label class="field"><span>Wi-Fi name</span><input id="ssid" type="text" autocomplete="off" spellcheck="false" value="${esc(plan.ssid)}"></label>
       <label class="field"><span>Wi-Fi password</span><input id="pass" type="password" autocomplete="off" value="${esc(pass)}"></label>
       <p class="note">It must be a 2.4 GHz network (most home Wi-Fi is). <button type="button" class="link" id="show">Show password</button></p>
-      <p class="err" id="err"></p>${nav(1, 'Next')}`;
+      <p class="err" id="err"></p>${nav(1, 'Check and continue')}`;
     $('show').onclick = () => { const p = $('pass'); p.type = p.type === 'password' ? 'text' : 'password'; $('show').textContent = p.type === 'password' ? 'Show password' : 'Hide password'; };
     $('scan').onclick = scanWifi;
-    wireNav(1, () => {
-      plan.ssid = $('ssid').value.trim(); pass = $('pass').value;
-      if (!plan.ssid) { $('err').textContent = 'Enter the Wi-Fi name.'; return; }
-      go(3);
-    });
+    wireNav(1, checkWifi);
   },
   // 3 Names
   () => {
@@ -391,6 +387,36 @@ async function scanWifi() {
   } catch (_) {
     note.textContent = 'This station can\'t search for Wi-Fi yet (it needs a newer version). Type the name below instead.';
   } finally { $('scan').disabled = false; }
+}
+// Before moving on, a plugged-in station tries the name and password for real.
+async function checkWifi() {
+  const err = $('err'), next = $('next');
+  plan.ssid = $('ssid').value.trim(); pass = $('pass').value; keep();
+  err.textContent = '';
+  if (!plan.ssid) { err.textContent = 'Enter the Wi-Fi name.'; return; }
+  if (!port || !port.writable) {
+    $('scanNote').textContent = 'Pick any station in the list so it can test the password.';
+    try { await connectAny(); } catch (e) {
+      err.textContent = e.name === 'NotFoundError' ? 'Plug a station into this computer and pick it, so it can test the password.'
+                                                   : 'Couldn\'t open the station. Unplug it, plug it back in, and try again.';
+      return;
+    }
+  }
+  next.disabled = true; next.textContent = 'Checking…';
+  err.innerHTML = '<span class="note">The station is trying to join "' + esc(plan.ssid) + '". This takes up to half a minute.</span>';
+  const enc = encodeURIComponent;
+  let r = null;
+  try { await send('@TRY ssid=' + enc(plan.ssid) + '&pass=' + enc(pass)); r = parse(await waitFor(['@TRY'], 90000)); } catch (_) {}
+  next.disabled = false; next.textContent = 'Check and continue';
+  if (r && r.ok) { go(3); return; }
+  if (!r) {
+    err.innerHTML = 'The station didn\'t answer (it may need a newer version). <button type="button" class="link" id="skip">Continue without checking</button>';
+    $('skip').onclick = () => go(3);
+    return;
+  }
+  err.textContent = r.why === 'password' ? 'That password didn\'t work for "' + plan.ssid + '". Check it (tap Show password; capitals count) and try again.'
+    : r.why === 'notfound' ? 'The station can\'t hear "' + plan.ssid + '". Check the spelling (capitals count) and that it\'s a 2.4 GHz network, or use Find my Wi-Fi.'
+    : 'The station couldn\'t join "' + plan.ssid + '" (code ' + r.reason + '). Move it closer to the router and try again.';
 }
 const groupString = () => plan.groups.map(g => [g.call, g.name, ...g.members].join(' ')).join(';');
 
