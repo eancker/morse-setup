@@ -114,7 +114,9 @@ if (!plan.kit) plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), 
 
 const STEPS = ['Welcome', 'How many', 'Wi-Fi', 'Names', 'Groups', 'Shortcuts', 'Kit code', 'Plug in', 'Done'];
 function go(n) { plan.step = n; keep(); render(); window.scrollTo(0, 0); }
+let add = null;                           // "add a station to my kit", kept only while the page is open
 function rail() {
+  if (add) { $('rail').innerHTML = [0, 1, 2, 3].map(i => `<span class="${i < add.step ? 'done' : i === add.step ? 'now' : ''}"></span>`).join(''); return; }
   $('rail').innerHTML = STEPS.slice(1).map((_, i) => `<span class="${i + 1 < plan.step ? 'done' : i + 1 === plan.step ? 'now' : ''}"></span>`).join('');
 }
 function nav(backTo, nextLabel, nextFn, nextOff) {
@@ -134,7 +136,9 @@ const VIEWS = [
     $('card').innerHTML = `<h1>Let's set up your Morse stations</h1>
       <p class="lede">A few questions about your household, then you'll plug each station into this computer for a minute. You'll need your Wi-Fi password and the USB-C cable.</p>
       <div class="nav">${started ? '<button type="button" id="over">Start over</button>' : ''}<span class="grow"></span>
-      <button type="button" class="primary" id="next">${started ? 'Continue where I left off' : 'Get started'}</button></div>`;
+      <button type="button" class="primary" id="next">${started ? 'Continue where I left off' : 'Get started'}</button></div>
+      <p class="note" style="margin-top:18px">Already have stations working? <button type="button" class="link" id="addOne">Add a station to my kit</button></p>`;
+    $('addOne').onclick = () => { add = { step: 0, kit: '', ssid: '', groups: '', stations: [], name: '', call: '', fromMac: '' }; render(); };
     $('next').onclick = () => go(started ? 7 : 1);
     if ($('over')) $('over').onclick = () => { plan = fresh(); plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join(''); go(1); };
   },
@@ -307,7 +311,175 @@ const VIEWS = [
     $('over').onclick = () => { plan = fresh(); plan.kit = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ALPHA[b % 32]).join(''); pass = ''; go(0); };
   },
 ];
-function render() { rail(); VIEWS[plan.step](); }
+// ---- Add a station to a kit that's already working ----
+const ADD = [
+  // 0 Learn the kit from a station they already have
+  () => {
+    $('card').innerHTML = `<span class="stepname">Add a station · 1 of 4</span><h1>Plug in a station you already have</h1>
+      <p class="lede">Connect one of your working stations (any one) to this computer with the USB-C cable. It tells this page your kit code, Wi-Fi and who's already in the kit.</p>
+      <p class="err" id="err" role="alert"></p>
+      <div class="nav"><button type="button" id="back">Back</button><span class="grow"></span><button type="button" class="primary" id="connect">Connect</button></div>
+      <p class="note" style="margin-top:18px">No working station handy? <button type="button" class="link" id="manual">Type the kit code instead</button></p>
+      <div id="manualBox" hidden>
+        <label class="field"><span>Kit code (8 letters and numbers)</span><input id="kit" class="code" type="text" maxlength="9" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Wi-Fi name</span><input id="ssid" type="text" autocomplete="off" spellcheck="false"></label>
+        <p class="note">Group call signs (like P for parents) won't reach this station; ALL and its own call sign will.</p>
+        <div class="nav"><span class="grow"></span><button type="button" class="primary" id="useKit">Next</button></div>
+      </div>`;
+    $('back').onclick = () => { add = null; render(); };
+    $('manual').onclick = () => { $('manualBox').hidden = false; $('kit').focus(); };
+    $('kit').oninput = e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); };
+    $('useKit').onclick = () => {
+      const k = $('kit').value, ss = $('ssid').value.trim();
+      if (k.length !== 8 || [...k].some(c => !ALPHA.includes(c))) { $('err').textContent = 'A kit code is 8 letters and numbers (it never uses I, O, 0 or 1).'; return; }
+      if (!ss) { $('err').textContent = 'Enter the Wi-Fi name.'; return; }
+      Object.assign(add, { kit: k, ssid: ss, groups: '', stations: [], fromMac: '', manual: true }); addGo(1);
+    };
+    $('connect').onclick = async () => {
+      const err = $('err'); err.textContent = '';
+      try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') err.textContent = 'Couldn\'t open the station. Unplug it, plug it back in, and try again.'; return; }
+      $('connect').disabled = true;
+      const info = await askInfo();
+      $('connect').disabled = false;
+      if (!info) { err.textContent = 'The station didn\'t answer. Unplug it, plug it back in, and click Connect again.'; return; }
+      if (!info.configured) { err.textContent = 'This station isn\'t set up yet, so it can\'t tell us about your kit. Plug in one that\'s working, or type the kit code.'; return; }
+      if (!info.stations) { err.textContent = 'This station needs a newer version to do this. Type the kit code instead.'; return; }
+      Object.assign(add, { kit: info.kit, ssid: info.ssid, groups: info.groups || '', fromMac: info.mac, manual: false,
+        stations: [{ name: info.name, call: info.call, mac: info.mac }, ...info.stations] });
+      if (add.stations.length >= 8) { err.textContent = 'Your kit already has 8 stations, the most a kit can have.'; return; }
+      addGo(1);
+    };
+  },
+  // 1 Wi-Fi password, tested by whichever station is plugged in
+  () => {
+    $('card').innerHTML = `<span class="stepname">Add a station · 2 of 4</span><h1>Your Wi-Fi password</h1>
+      ${add.manual ? '' : `<p class="lede">Found your kit: ${add.stations.map(x => `<b>${esc(x.name)}</b>`).join(', ')}.</p>`}
+      <p class="lede">The new station joins <b>${esc(add.ssid)}</b>. Stations never share the password, so type it here.</p>
+      <label class="field"><span>Wi-Fi password</span><input id="pass" type="password" autocomplete="off" value="${esc(pass)}"></label>
+      <p class="note"><button type="button" class="link" id="show">Show password</button></p>
+      <p class="note" id="scanNote"></p>
+      <p class="err" id="err" role="alert"></p>${nav(0, 'Check and continue')}`;
+    $('show').onclick = () => { const p = $('pass'); p.type = p.type === 'password' ? 'text' : 'password'; $('show').textContent = p.type === 'password' ? 'Show password' : 'Hide password'; };
+    $('back').onclick = () => addGo(0);
+    $('next').onclick = async () => {
+      pass = $('pass').value;
+      const r = await tryWifi(add.ssid, pass);
+      if (r === true) addGo(2);
+      else if (r === null) { $('err').innerHTML = 'The station didn\'t answer (it may need a newer version). <button type="button" class="link" id="skip">Continue without checking</button>'; $('skip').onclick = () => addGo(2); }
+      else if (r) $('err').textContent = r;
+    };
+  },
+  // 2 Name the new one
+  () => {
+    $('card').innerHTML = `<span class="stepname">Add a station · 3 of 4</span><h1>Name the new station</h1>
+      <p class="lede">Who it's for or where it lives. The call sign is what people key to message just this station.</p>
+      <div class="namerow"><span class="n">+</span>
+        <input class="code" type="text" maxlength="8" id="nm" placeholder="NAME" value="${esc(add.name)}" aria-label="Name">
+        <input class="code" type="text" maxlength="3" id="cl" placeholder="CALL" value="${esc(add.call)}" aria-label="Call sign"></div>
+      ${add.stations.length ? `<p class="note">Already taken: ${add.stations.map(x => `${esc(x.name)} (${esc(x.call)})`).join(', ')}${groupCalls(add.groups).length ? ', groups ' + groupCalls(add.groups).join(', ') : ''}.</p>` : ''}
+      <p class="err" id="err"></p>${nav(1, 'Next')}`;
+    $('back').onclick = () => addGo(1);
+    $('nm').oninput = e => { e.target.value = clean(e.target.value, 8); add.name = e.target.value; if (!add.callTouched) { add.call = add.name.slice(0, 1); $('cl').value = add.call; } };
+    $('cl').oninput = e => { e.target.value = clean(e.target.value, 3); add.call = e.target.value; add.callTouched = true; };
+    $('next').onclick = () => {
+      const e = nameProblem(add.name, add.call, add.stations, add.groups);
+      $('err').textContent = e; if (!e) addGo(3);
+    };
+  },
+  // 3 Plug in the new one and set it up
+  () => {
+    $('card').innerHTML = `<span class="stepname">Add a station · 4 of 4</span><h1>${add.done ? `${esc(add.name)} joined your kit` : `Plug in the new station`}</h1>
+      ${add.done ? `<p class="lede">It knows ${add.done.others.length ? add.done.others.map(n => `<b>${esc(n)}</b>`).join(', ') : 'your other stations'} and picks up your family's shortcuts by itself.
+        Key <b>${esc(add.call)}</b>, then <b>BT</b>, then a message from any other station to say hello.</p>
+        <p class="lede">Its control page: <a href="http://morse-${add.name.toLowerCase()}.local/" target="_blank" rel="noopener" style="font-family:var(--mono)">morse-${add.name.toLowerCase()}.local</a></p>`
+      : `<p class="lede">${add.fromMac ? 'Unplug the station you just used, then connect' : 'Connect'} the new one. Its screen should say:</p>
+        <div class="oled">HELLO<small>OPEN MORSE SETUP</small></div>
+        <p class="lede">Click <b>Connect</b> and choose it in the list Chrome shows.</p>
+        <div class="plug"><ul><li class="now"><span class="tick"></span><span class="who">${esc(add.name)} <span class="call">${esc(add.call)}</span></span><span class="state" id="st">Next</span></li></ul></div>`}
+      <p class="err" id="err" role="alert"></p>
+      <div class="nav"><button type="button" id="back">${add.done ? 'Add another' : 'Back'}</button><span class="grow"></span>
+        ${add.done ? '<button type="button" class="primary" id="next">Finish</button>' : '<button type="button" class="primary" id="connect">Connect</button>'}</div>`;
+    if (add.done) {
+      $('back').onclick = () => { add.stations.push({ name: add.name, call: add.call, mac: add.done.mac }); Object.assign(add, { name: '', call: '', callTouched: false, done: null, fromMac: 'x' }); addGo(2); };
+      $('next').onclick = () => { add = null; pass = ''; render(); };
+    } else {
+      $('back').onclick = () => addGo(2);
+      $('connect').onclick = addStation;
+    }
+  },
+];
+const groupCalls = g => (g || '').split(';').map(x => x.trim().split(/\s+/)[0]).filter(Boolean);
+function nameProblem(name, call, others, groups) {
+  if (!name) return 'Give the station a name.';
+  if (!call) return 'Give it a call sign.';
+  const n = others.find(x => x.name === name); if (n) return `${name} is already in your kit.`;
+  const c = others.find(x => x.call === call); if (c) return `Call sign ${call} is already ${c.name}'s. Pick another, for example ${name.slice(0, 2)}.`;
+  if (call === 'ALL' || groupCalls(groups).includes(call)) return `Call sign ${call} is already a group.`;
+  return '';
+}
+async function askInfo() {
+  for (let k = 0; k < 8; k++) {
+    await send('@INFO').catch(() => {});
+    const l = await waitFor(['@INFO'], 1500).catch(() => null);
+    if (l) return parse(l);
+  }
+  return null;
+}
+// true = joined; a sentence = why not; null = no answer
+async function tryWifi(ssid, pw) {
+  const err = $('err'), next = $('next');
+  err.textContent = '';
+  if (!port || !port.writable) {
+    try { await connectAny(); } catch (e) {
+      err.textContent = e.name === 'NotFoundError' ? 'Plug a station into this computer and pick it, so it can test the password.'
+                                                   : 'Couldn\'t open the station. Unplug it, plug it back in, and try again.';
+      return false;
+    }
+  }
+  const label = next.textContent; next.disabled = true; next.textContent = 'Checking…';
+  $('scanNote').textContent = 'The station is trying to join "' + ssid + '". This takes up to half a minute.';
+  let r = null;
+  try { await send('@TRY ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pw)); r = parse(await waitFor(['@TRY'], 90000)); } catch (_) {}
+  next.disabled = false; next.textContent = label; $('scanNote').textContent = '';
+  if (!r) return null;
+  if (r.ok) return true;
+  return r.why === 'password' ? 'That password didn\'t work for "' + ssid + '". Check it (tap Show password; capitals count) and try again.'
+    : r.why === 'notfound' ? 'The station can\'t hear "' + ssid + '". Check the spelling (capitals count) and that it\'s a 2.4 GHz network.'
+    : 'The station couldn\'t join "' + ssid + '" (code ' + r.reason + '). Move it closer to the router and try again.';
+}
+async function addStation() {
+  const say = t => { $('st').textContent = t; }, err = $('err'), fail = t => { err.textContent = t; $('connect').disabled = false; };
+  err.textContent = '';
+  try { await connectAny(); } catch (e) { if (e.name !== 'NotFoundError') fail('Couldn\'t open the station. Unplug it, plug it back in, and try again.'); return; }
+  $('connect').disabled = true;
+  try {
+    say('Connecting…');
+    const board = await askInfo();
+    if (!board) throw new Error('The station didn\'t answer. Unplug it, plug it back in, and click Connect again.');
+    if (board.mac === add.fromMac || add.stations.some(x => x.mac === board.mac) || (board.configured && board.kit === add.kit))
+      throw new Error(`That's ${board.name || 'a station'}, already in your kit. Unplug it and plug in the new one.`);
+    if (board.configured) throw new Error(`This station is set up as ${board.name} in a different kit. To reuse it, unplug it, hold its key while plugging it back in until the screen says HELLO, then click Connect.`);
+    say('Saving…');
+    await send('@SET ' + new URLSearchParams({ ssid: add.ssid, pass, name: add.name, call: add.call, kit: add.kit, groups: add.groups }));
+    const r = await waitFor(['@OK', '@ERR'], 4000);
+    if (r.startsWith('@ERR')) throw new Error(r.slice(5));
+    say('Restarting and joining your kit…');
+    if (!port || !port.readable) await reopen(15000);
+    const ready = parse(await waitFor(['@READY'], 60000));
+    if (!ready.wifi) throw new Error(`${add.name} is saved but couldn't join "${add.ssid}". Check the password (Back, Back), then plug it in again.`);
+    const others = (ready.stations || []).map(x => x.name);
+    const clash = (ready.stations || []).find(x => x.name === add.name || x.call === add.call);
+    if (clash) throw new Error(`Your kit already has ${clash.name} (${clash.call}). Click Back, pick a different name or call sign, and connect again.`);
+    add.done = { mac: board.mac, others };
+    render();
+  } catch (e) {
+    say('');
+    fail(e.message === 'timeout' || e.message === 'lost' ? 'The station stopped answering. Unplug it, plug it back in, and click Connect again.' : e.message);
+  }
+}
+
+function render() { rail(); add ? ADD[add.step]() : VIEWS[plan.step](); }
+function addGo(n) { add.step = n; render(); window.scrollTo(0, 0); }
 
 // ---- USB serial: "@" lines to and from the station ----
 let port = null, waiters = [];
@@ -390,33 +562,12 @@ async function scanWifi() {
 }
 // Before moving on, a plugged-in station tries the name and password for real.
 async function checkWifi() {
-  const err = $('err'), next = $('next');
   plan.ssid = $('ssid').value.trim(); pass = $('pass').value; keep();
-  err.textContent = '';
-  if (!plan.ssid) { err.textContent = 'Enter the Wi-Fi name.'; return; }
-  if (!port || !port.writable) {
-    $('scanNote').textContent = 'Pick any station in the list so it can test the password.';
-    try { await connectAny(); } catch (e) {
-      err.textContent = e.name === 'NotFoundError' ? 'Plug a station into this computer and pick it, so it can test the password.'
-                                                   : 'Couldn\'t open the station. Unplug it, plug it back in, and try again.';
-      return;
-    }
-  }
-  next.disabled = true; next.textContent = 'Checking…';
-  err.innerHTML = '<span class="note">The station is trying to join "' + esc(plan.ssid) + '". This takes up to half a minute.</span>';
-  const enc = encodeURIComponent;
-  let r = null;
-  try { await send('@TRY ssid=' + enc(plan.ssid) + '&pass=' + enc(pass)); r = parse(await waitFor(['@TRY'], 90000)); } catch (_) {}
-  next.disabled = false; next.textContent = 'Check and continue';
-  if (r && r.ok) { go(3); return; }
-  if (!r) {
-    err.innerHTML = 'The station didn\'t answer (it may need a newer version). <button type="button" class="link" id="skip">Continue without checking</button>';
-    $('skip').onclick = () => go(3);
-    return;
-  }
-  err.textContent = r.why === 'password' ? 'That password didn\'t work for "' + plan.ssid + '". Check it (tap Show password; capitals count) and try again.'
-    : r.why === 'notfound' ? 'The station can\'t hear "' + plan.ssid + '". Check the spelling (capitals count) and that it\'s a 2.4 GHz network, or use Find my Wi-Fi.'
-    : 'The station couldn\'t join "' + plan.ssid + '" (code ' + r.reason + '). Move it closer to the router and try again.';
+  if (!plan.ssid) { $('err').textContent = 'Enter the Wi-Fi name.'; return; }
+  const r = await tryWifi(plan.ssid, pass);
+  if (r === true) go(3);
+  else if (r === null) { $('err').innerHTML = 'The station didn\'t answer (it may need a newer version). <button type="button" class="link" id="skip">Continue without checking</button>'; $('skip').onclick = () => go(3); }
+  else if (r) $('err').textContent = r;
 }
 const groupString = () => plan.groups.map(g => [g.call, g.name, ...g.members].join(' ')).join(';');
 
